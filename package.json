@@ -11,7 +11,7 @@
     "test": "node --test test/ipc.test.js test/cli.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.3"
   },
   "private": true,
   "license": "MIT",

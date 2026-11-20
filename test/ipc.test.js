@@ -163,6 +163,19 @@ test('--force takes the session back from another device', { timeout: 25000 }, a
   assert.equal(await b.stop(), 0);
 });
 
+// The desktop app sends `boost` right after spawning (tray start, resumed session),
+// usually before the login finishes. The command must not be lost.
+test('a boost sent before login starts boosting once logged in', { timeout: 20000 }, async (t) => {
+  const b = start(t, { config: config({ customTitle: 'T' }), tokenText: token() });
+  b.send({ type: 'boost', on: true });
+
+  await b.waitFor((e) => e.type === 'loggedOn');
+  await b.waitForCondition(() => b.games().some((g) => sameApps(g.apps, ['T', 730])));
+  await b.waitFor((e) => e.type === 'status' && e.state === 'boosting');
+
+  assert.equal(await b.stop(), 0);
+});
+
 test('a custom title counts against Steam\'s 32-entry limit', { timeout: 20000 }, async (t) => {
   const games = Array.from({ length: 32 }, (_, index) => 730 + index);
   const b = start(t, { config: config({ games }), tokenText: token() });
