@@ -70,3 +70,11 @@ npx tauri dev
 ```
 
 `npx tauri build` makes an installer in `desktop/src-tauri/target/release/bundle/nsis/`.
+
+## Tests
+
+```powershell
+npm test
+```
+
+The suite drives the CLI and the `--ipc` protocol against a fake `steam-user` in temporary folders. It needs no Steam account or network access and never touches `.session/`.

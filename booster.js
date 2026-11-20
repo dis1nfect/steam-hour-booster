@@ -228,16 +228,18 @@ const tokenPath = (account) => {
   return path.join(SESSION_DIR, `${WINDOWS_RESERVED.test(name) ? `_${name}` : name}.token`);
 };
 
-// steam-user validates the token asynchronously and crashes the process on a bad one,
-// so check it here and fall back to a password login instead.
+// steam-user validates the token asynchronously and terminates the process on a
+// structurally bad one, so check that here and fall back to a password login instead.
+// The `exp` claim is deliberately not trusted: a wrong local clock must not delete a
+// valid session. Steam rejects a genuinely expired token, and the error handler then
+// deletes it and prompts for a password.
 function isUsableToken(token) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return false;
     const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
     const aud = Array.isArray(payload.aud) ? payload.aud : typeof payload.aud === 'string' ? [payload.aud] : [];
-    if (payload.iss !== 'steam' || !aud.includes('client')) return false;
-    return typeof payload.exp !== 'number' || payload.exp * 1000 > Date.now();
+    return payload.iss === 'steam' && aud.includes('client');
   } catch {
     return false;
   }
