@@ -1,0 +1,301 @@
+<title>Hour Booster Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, numbered steps on a left rail, terminal blocks as the hero material */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --fg: #18202b;
+  --muted: #5a6577;
+  --line: #d9dee6;
+  --accent: #2f6fd6;
+  --accent-soft: #e3ecfb;
+  --term-bg: #121821;
+  --term-fg: #d7e0ea;
+  --term-dim: #7f8ea3;
+  --term-ok: #7fd49b;
+  --term-warn: #f0c26b;
+  --term-prompt: #7fb2ff;
+  --warn-bg: #fff6e3;
+  --warn-line: #e8c477;
+  --ingame: #5f8f22;
+  --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #171e28; --fg: #e3e9f1; --muted: #98a4b6; --line: #2a3442;
+    --accent: #79a8f5; --accent-soft: #1c2a40; --term-bg: #0a0e14; --warn-bg: #2a2416; --warn-line: #6b5a2c; --ingame: #9bd14f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --fg: #e3e9f1; --muted: #98a4b6; --line: #2a3442;
+  --accent: #79a8f5; --accent-soft: #1c2a40; --term-bg: #0a0e14; --warn-bg: #2a2416; --warn-line: #6b5a2c; --ingame: #9bd14f;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.65 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 48px 80px;
+}
+main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.2; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 6vw, 2.8rem); letter-spacing: -0.02em; }
+h2 { font-size: 1.55rem; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.9em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+.eyebrow { font: 500 0.78rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.lede { font-size: 1.15rem; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-direction: column; gap: 14px; }
+
+/* how-it-works flow */
+.flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 10px; align-items: stretch; }
+.node { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.node strong { font-family: var(--font-display); }
+.node span { font-size: 0.9rem; color: var(--muted); }
+.arrow { align-self: center; color: var(--accent); font: 500 0.8rem var(--font-mono); text-align: center; }
+.arrow::before { content: "→"; display: block; font-size: 1.5rem; line-height: 1; }
+@media (max-width: 640px) {
+  .flow { grid-template-columns: 1fr; }
+  .arrow::before { content: "↓"; }
+}
+.profile-chip { margin-top: 6px; display: inline-flex; flex-direction: column; font-size: 0.85rem; line-height: 1.3; border-left: 3px solid var(--ingame); padding-left: 8px; }
+.profile-chip b { color: var(--ingame); font-weight: 600; }
+
+/* steps */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 40px; counter-reset: step; }
+.step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; }
+.step::before {
+  counter-increment: step; content: counter(step);
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--bg); font: 700 1rem var(--font-display);
+}
+.step-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+/* terminal */
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 10px; font: 0.88rem/1.6 var(--font-mono); position: relative; min-width: 0; }
+.term pre { margin: 0; padding: 16px 18px; overflow-x: auto; white-space: pre; }
+.term .label { display: block; padding: 8px 18px 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--term-dim); }
+.p { color: var(--term-prompt); user-select: none; }
+.d { color: var(--term-dim); }
+.ok { color: var(--term-ok); }
+.w { color: var(--term-warn); }
+.copy {
+  position: absolute; top: 8px; right: 8px; font: 500 0.75rem var(--font-body);
+  background: transparent; color: var(--term-dim); border: 1px solid #334052; border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.copy:hover, .copy:focus-visible { color: var(--term-fg); border-color: var(--term-dim); outline: none; }
+
+.note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 12px 16px; font-size: 0.95rem; }
+.tip { background: var(--accent-soft); border-radius: 10px; padding: 12px 16px; font-size: 0.95rem; }
+
+/* tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 0.78rem var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+td:first-child { white-space: nowrap; }
+
+/* faq */
+details { border-bottom: 1px solid var(--line); padding: 12px 0; }
+details:first-of-type { border-top: 1px solid var(--line); }
+summary { cursor: pointer; font-weight: 600; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details p { margin-top: 8px; color: var(--muted); }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">booster.js · tutorial</div>
+    <h1>Steam Hour Booster, step by step</h1>
+    <p class="lede">What the booster actually does, how to set it up the first time, and what to do when something goes wrong. No programming knowledge needed.</p>
+  </header>
+
+  <section>
+    <h2>How it works</h2>
+    <p>Steam doesn't check whether a game is really running on your PC. It just trusts what your Steam client tells its servers. When you launch a game, the client sends a message like "this account is now playing app 730", and Steam counts playtime for as long as that's true.</p>
+    <p>The booster is a tiny Steam client without any games or windows. It logs in to your account and sends that same "now playing" message for the games you pick. Nothing gets downloaded or launched, so it uses almost no CPU, memory or internet.</p>
+    <div class="flow" role="img" aria-label="booster.js on your PC tells Steam's servers which games you are playing; Steam adds hours and shows your custom title on your profile.">
+      <div class="node"><strong>booster.js</strong><span>Runs in a terminal on your PC. Logs in as you.</span></div>
+      <div class="arrow">"playing 730, 440"</div>
+      <div class="node"><strong>Steam servers</strong><span>Mark those games as running and count the time.</span></div>
+      <div class="arrow">shows</div>
+      <div class="node"><strong>Your profile</strong><span>Friends see the custom title, and hours go up.</span>
+        <div class="profile-chip"><b>In non-Steam game</b>Boosting hours</div>
+      </div>
+    </div>
+    <p>Each game is identified by its <strong>app ID</strong>, the number Steam uses instead of the name. Counter-Strike 2 is <code>730</code>, Team Fortress 2 is <code>440</code>, Dota 2 is <code>570</code>.</p>
+  </section>
+
+  <section>
+    <h2>Set it up</h2>
+    <ol class="steps">
+      <li class="step"><div class="step-body">
+        <h3>Check that Node.js is installed</h3>
+        <p>The booster is a Node.js program. Open PowerShell (press Start, type <em>PowerShell</em>, press Enter) and run:</p>
+        <div class="term"><button class="copy" type="button" data-copy="node -v">Copy</button><pre><span class="p">PS&gt; </span>node -v
+<span class="d">v26.13.0</span></pre></div>
+        <p>Any version number means you're set (it needs 18 or newer). If PowerShell says <code>node</code> isn't recognised, install the LTS version from <a href="https://nodejs.org" target="_blank" rel="noopener">nodejs.org</a> and open a new PowerShell window.</p>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Go to the booster folder</h3>
+        <p>Every command below must be run from inside the folder that holds <code>booster.js</code>.</p>
+        <div class="term"><button class="copy" type="button" data-copy="cd $HOME\Documents\steamhourbooster">Copy</button><pre><span class="p">PS&gt; </span>cd $HOME\Documents\steamhourbooster</pre></div>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Install the Steam library (once)</h3>
+        <p>This downloads <code>steam-user</code>, the library that speaks Steam's network protocol, into a <code>node_modules</code> folder. It's already done in your folder, but you need to do it again if you copy the booster to another PC.</p>
+        <div class="term"><button class="copy" type="button" data-copy="npm install">Copy</button><pre><span class="p">PS&gt; </span>npm install</pre></div>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Find the app IDs of your games</h3>
+        <p>Open the game's page in the Steam store. The number in the address is the app ID:</p>
+        <div class="term"><span class="label">store page address</span><pre>store.steampowered.com/app/<span class="ok">730</span>/CounterStrike_2/</pre></div>
+        <p>You can only add hours to games that are on your account. That means games you own, or free games you've added to your library.</p>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Start the booster</h3>
+        <p>Put your account name after <code>-u</code>, your app IDs (separated by commas, no spaces) after <code>-g</code>, and optionally a custom title after <code>-t</code>:</p>
+        <div class="term"><button class="copy" type="button" data-copy="node booster.js -u your_username -g 730,440 -t &quot;Boosting hours&quot;">Copy</button><pre><span class="p">PS&gt; </span>node booster.js -u your_username -g 730,440 -t "Boosting hours"</pre></div>
+        <p>Use your <strong>account name</strong>, the one you type to log in. It's not the same as your profile name.</p>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Log in the first time</h3>
+        <p>The booster asks for your password. Nothing shows while you type, which is normal. Then Steam asks for a Steam Guard code from your email or the Steam mobile app. If you use the app, you can also just tap Approve on your phone.</p>
+        <div class="term"><span class="label">first run</span><pre>Password for your_username:
+<span class="d">[10:41:02 PM]</span> Logging in as your_username...
+Steam Guard code from your mobile app (or approve the login in the app): <span class="ok">F7K2Q</span>
+<span class="d">[10:41:09 PM]</span> Logged in (SteamID 7656119...)
+<span class="d">[10:41:09 PM]</span> Boosting 2 game(s) with custom title "Boosting hours":
+<span class="d">[10:41:10 PM]</span>   - 730: Counter-Strike 2
+<span class="d">[10:41:10 PM]</span>   - 440: Team Fortress 2
+Boosting 2 game(s) as "Boosting hours" | <span class="ok">00:00:42</span>  (Ctrl+C to stop)</pre></div>
+        <p>The last line updates every second. As long as that timer is running, hours are being added. Leave the window open; you can minimise it.</p>
+      </div></li>
+
+      <li class="step"><div class="step-body">
+        <h3>Stop it</h3>
+        <p>Click the PowerShell window and press <strong>Ctrl+C</strong>. The booster stops the games, logs out, and shows how long it ran. Closing the window also works.</p>
+      </div></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Next time: no password needed</h2>
+    <p>After the first login, Steam gives the booster a <strong>login token</strong>, and it saves that in the <code>.session</code> folder. Next time it logs in with the token, so you won't be asked for your password or a Steam Guard code. The token is renewed automatically.</p>
+    <div class="note"><strong>Keep the <code>.session</code> folder private.</strong> Anyone who has the token file can log in to your Steam account. Don't send it to anyone or upload it. To delete it, run <code>node booster.js -u your_username --logout</code>.</div>
+  </section>
+
+  <section>
+    <h2>Save your settings in a file</h2>
+    <p>To avoid typing the games every time, make a <code>config.json</code> file. Copy the example and open it in Notepad:</p>
+    <div class="term"><button class="copy" type="button" data-copy="copy config.example.json config.json; notepad config.json">Copy</button><pre><span class="p">PS&gt; </span>copy config.example.json config.json
+<span class="p">PS&gt; </span>notepad config.json</pre></div>
+    <p>Change the values and save:</p>
+    <div class="term"><span class="label">config.json</span><pre>{
+  "accountName": "your_username",   <span class="d">&lt;- your login name</span>
+  "games": [730, 440, 570],         <span class="d">&lt;- app IDs, up to 32</span>
+  "customTitle": "Boosting hours",  <span class="d">&lt;- or "" for no title</span>
+  "invisible": false,               <span class="d">&lt;- true = appear offline to friends</span>
+  "force": false                    <span class="d">&lt;- see "Playing on another PC"</span>
+}</pre></div>
+    <p class="tip">The arrows and notes above are only explanations. Don't put them in the real file, or it won't load. JSON doesn't allow comments.</p>
+    <p>From now on, starting the booster is just:</p>
+    <div class="term"><button class="copy" type="button" data-copy="node booster.js">Copy</button><pre><span class="p">PS&gt; </span>node booster.js</pre></div>
+    <p>Options you type on the command line override the file. For example, <code>node booster.js -g 570</code> boosts only Dota 2 this time.</p>
+  </section>
+
+  <section>
+    <h2>All options</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Option</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>-u name</code></td><td>Steam account name to log in with.</td></tr>
+        <tr><td><code>-g 730,440</code></td><td>Games to boost, by app ID. Up to 32, or 31 with a custom title.</td></tr>
+        <tr><td><code>-t "text"</code></td><td>Custom title friends see as your current game.</td></tr>
+        <tr><td><code>--invisible</code></td><td>Appear offline to friends while boosting. Hours still count.</td></tr>
+        <tr><td><code>-f</code>, <code>--force</code></td><td>Take the account back if it's playing somewhere else.</td></tr>
+        <tr><td><code>-c file</code></td><td>Use a different config file, e.g. one per account.</td></tr>
+        <tr><td><code>--logout</code></td><td>Delete the saved login token and exit.</td></tr>
+        <tr><td><code>-h</code></td><td>Show the built-in help.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Playing on another PC</h2>
+    <p>Steam lets an account play on only one device at a time. If you start a game on your gaming PC while the booster is running, you'll see:</p>
+    <div class="term"><pre><span class="w">! This account is playing on another device (app 1172470). Waiting for it to stop...</span></pre></div>
+    <p>The booster pauses and the timer stops. When you quit your game, it picks up again by itself:</p>
+    <div class="term"><pre>Account is free again, resuming boost.</pre></div>
+    <p>With <code>--force</code> it does the opposite and kicks the other device off, which will close your game on that PC. Only use it if you'll never play while boosting.</p>
+  </section>
+
+  <section>
+    <h2>When something goes wrong</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Message</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td><code>Wrong username or password</code></td><td>Type it again. Check that you used the account name, not your profile name.</td></tr>
+        <tr><td><code>That code was wrong</code></td><td>Steam Guard codes change every 30 seconds. Enter the current one.</td></tr>
+        <tr><td><code>rate-limiting logins</code></td><td>Too many attempts. Wait about 30 minutes before trying again.</td></tr>
+        <tr><td><code>Saved session no longer valid</code></td><td>The token expired or you changed your password. Log in again when asked.</td></tr>
+        <tr><td><code>Invalid app ID</code></td><td>The <code>-g</code> list may only contain numbers and commas.</td></tr>
+        <tr><td><code>Unknown app IDs</code></td><td>Steam doesn't recognise that number. Check it on the store page.</td></tr>
+        <tr><td><code>Disconnected... Reconnecting</code></td><td>Your internet dropped or Steam is down. Nothing to do; it reconnects by itself.</td></tr>
+        <tr><td><code>node is not recognized</code></td><td>Install Node.js (step 1) and open a new PowerShell window.</td></tr>
+        <tr><td><code>Cannot find module 'steam-user'</code></td><td>Run <code>npm install</code> in the booster folder (step 3).</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Questions</h2>
+    <div>
+      <details><summary>Do the games need to be installed?</summary><p>No. Steam only needs to be told you're playing. The game doesn't have to be on your PC at all.</p></details>
+      <details><summary>Can I use Steam normally while it runs?</summary><p>Yes. You can chat and browse in the normal Steam client at the same time. Only starting a game pauses the booster, as described above.</p></details>
+      <details><summary>Does my PC have to stay on?</summary><p>Yes. Hours count only while the booster is running and connected. If your PC sleeps, it disconnects, and it reconnects when the PC wakes up.</p></details>
+      <details><summary>Will I get achievements or card drops?</summary><p>Card drops for idled time, yes, on games that still have drops left. Achievements no, since the game never actually runs.</p></details>
+      <details><summary>Is this allowed?</summary><p>Idling doesn't get you VAC-banned, because no game is running. It may still go against Steam's subscriber agreement, and some games don't trust idled hours. You use it at your own risk.</p></details>
+      <details><summary>Where is my password stored?</summary><p>Nowhere. It's only sent to Steam during the first login. Afterwards only the login token in <code>.session</code> is kept.</p></details>
+    </div>
+  </section>
+</main>
+
+<script>
+document.querySelectorAll('.copy').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const text = btn.dataset.copy;
+    const done = (label) => { btn.textContent = label; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); };
+    const fallback = () => {
+      const pre = btn.parentElement.querySelector('pre');
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      done('Selected');
+    };
+    try {
+      navigator.clipboard.writeText(text).then(() => done('Copied'), fallback);
+    } catch { fallback(); }
+  });
+});
+</script>
