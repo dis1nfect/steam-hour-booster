@@ -33,6 +33,7 @@ Options:
   -f, --force            Take over if the account is playing elsewhere
       --logout           Delete the saved login session and exit
       --ipc              JSON mode used by the desktop app
+      --idle             With --ipc: log in, but wait for a "boost" command
   -h, --help             Show this help
 
 CLI options override the config file. The password is prompted for
@@ -147,6 +148,7 @@ function parseCli() {
         logout: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
         ipc: { type: 'boolean' },
+        idle: { type: 'boolean' },
       },
     }).values;
   } catch (e) {
@@ -184,15 +186,15 @@ function configString(cfgValue, name) {
   return cfgValue;
 }
 
-function parseGames(input) {
+function parseGames(input, fail = die) {
   const raw = Array.isArray(input) ? input : String(input ?? '').split(',');
   const ids = [];
   for (const entry of raw) {
     const s = String(entry).trim();
     if (!s) continue;
-    if (!/^\d+$/.test(s) || Number(s) <= 0) die(`Invalid app ID: "${s}"`);
+    if (!/^\d+$/.test(s) || Number(s) <= 0) fail(`Invalid app ID: "${s}"`);
     const id = Number(s);
-    if (!Number.isSafeInteger(id) || id > MAX_APP_ID) die(`Invalid app ID: "${s}"`);
+    if (!Number.isSafeInteger(id) || id > MAX_APP_ID) fail(`Invalid app ID: "${s}"`);
     if (!ids.includes(id)) ids.push(id);
   }
   return ids;
@@ -263,12 +265,14 @@ function listenForCommands() {
     let cmd;
     try { cmd = JSON.parse(line); } catch { return; }
     if (cmd?.type === 'stop') return shutdown();
-    if (cmd?.type === 'answer' && pendingAnswers.has(cmd.id)) {
+    if (cmd?.type === 'answer') {
+      if (!pendingAnswers.has(cmd.id)) return;
       const resolve = pendingAnswers.get(cmd.id);
       pendingAnswers.delete(cmd.id);
       if (activePrompt?.id === cmd.id) activePrompt = null;
-      resolve(String(cmd.value ?? '').trim());
+      return resolve(String(cmd.value ?? '').trim());
     }
+    onCommand(cmd ?? {});
   });
   rl.on('close', () => shutdown()); // the desktop app went away
 }
@@ -276,6 +280,14 @@ function listenForCommands() {
 // ---------- main ----------
 
 let shutdown = () => process.exit(0);
+let onCommand = () => {}; // 'boost' and 'config' commands, set up in main()
+
+const limitError = (games, title) => {
+  const max = MAX_ENTRIES - (title ? 1 : 0);
+  return games.length > max
+    ? `Steam allows at most ${max} games${title ? ' alongside a custom title' : ''} (got ${games.length}).`
+    : null;
+};
 
 async function main() {
   const args = parseCli();
@@ -291,25 +303,28 @@ async function main() {
     return log(`Saved session for ${account} removed.`);
   }
 
-  const games = parseGames(args.games ?? cfg.games);
-  const title = String(args.title ?? configString(cfg.customTitle, 'customTitle')).trim();
-  const invisible = configBool(args.invisible, cfg.invisible, 'invisible');
-  const force = configBool(args.force, cfg.force, 'force');
+  // --idle (desktop app only): log in, but wait for a 'boost' command before playing.
+  const idle = IPC && Boolean(args.idle);
+  let games = parseGames(args.games ?? cfg.games);
+  let title = String(args.title ?? configString(cfg.customTitle, 'customTitle')).trim();
+  let invisible = configBool(args.invisible, cfg.invisible, 'invisible');
+  let force = configBool(args.force, cfg.force, 'force');
 
-  if (!games.length && !title) die('No games to boost. Use --games 730,440 or set "games" in config.json.');
-  const maxGames = MAX_ENTRIES - (title ? 1 : 0);
-  if (games.length > maxGames) die(`Steam allows at most ${maxGames} games${title ? ' alongside a custom title' : ''} (got ${games.length}).`);
+  if (!idle && !games.length && !title) die('No games to boost. Use --games 730,440 or set "games" in config.json.');
+  if (limitError(games, title)) die(limitError(games, title));
 
   // A string entry shows as a non-Steam game, i.e. the custom title. It goes first so it is what friends see.
-  const playing = title ? [title, ...games] : games;
+  const playingList = () => (title ? [title, ...games] : games);
 
   const client = new SteamUser({ dataDirectory: SESSION_DIR, renewRefreshTokens: true, autoRelogin: true });
 
   let shuttingDown = false;
   let usedToken = false;
   let loggingIn = false;
+  let loggedIn = false;
+  let wantBoost = !idle;
   let blocked = false;
-  let namesShown = false;
+  const named = new Set(); // app IDs whose names were already looked up
   let retryTimer = null;
   let boostedMs = 0;
   let activeSince = null;
@@ -323,8 +338,10 @@ async function main() {
   const totalBoosted = () => boostedMs + (activeSince !== null ? Date.now() - activeSince : 0);
 
   if (IPC) {
-    const state = () => (activeSince !== null ? 'boosting' : blocked ? 'paused' : 'connecting');
-    statusTimer = setInterval(() => emit({ type: 'status', state: state(), boostedMs: totalBoosted() }), 1000);
+    const state = () => (!loggedIn ? 'connecting' : !wantBoost ? 'idle' : blocked ? 'paused' : 'boosting');
+    const sendStatus = () => emit({ type: 'status', state: state(), boostedMs: totalBoosted() });
+    statusTimer = setInterval(sendStatus, 1000);
+    sendStatus();
   } else if (isTTY) {
     statusTimer = setInterval(() => {
       if (activeSince === null) return;
@@ -362,26 +379,74 @@ async function main() {
   }
 
   function startBoost() {
-    client.gamesPlayed(playing, force);
+    if (!wantBoost || !loggedIn || !playingList().length) return;
+    client.gamesPlayed(playingList(), force);
     if (!blocked) startClock();
   }
 
+  function setBoost(on) {
+    if (on && !playingList().length) {
+      emit({ type: 'configError', msg: 'Add at least one game or a custom title first.' });
+      if (IPC) emit({ type: 'boosting', on: wantBoost }); // let the app reset its button
+      return;
+    }
+    if (on === wantBoost) return;
+    wantBoost = on;
+    if (on) {
+      if (loggedIn) log(`Boosting ${games.length} game(s)${title ? ` with custom title "${title}"` : ''}`);
+      startBoost();
+    } else {
+      stopClock();
+      if (loggedIn) client.gamesPlayed([]);
+      log('Boosting paused.');
+    }
+    if (IPC) emit({ type: 'boosting', on: wantBoost });
+  }
+
+  // Looks up names for games not seen before (all of them on the first login).
   async function showGameNames() {
-    if (namesShown || !games.length) return;
-    namesShown = true;
+    const ids = games.filter((id) => !named.has(id));
+    if (!ids.length || !loggedIn) return;
+    ids.forEach((id) => named.add(id));
     try {
-      const { apps, unknownApps } = await client.getProductInfo(games, [], true);
+      const { apps, unknownApps } = await client.getProductInfo(ids, [], true);
       if (IPC) {
-        emit({ type: 'games', games: games.map((id) => ({ id, name: apps[id]?.appinfo?.common?.name ?? null })) });
-      } else for (const id of games) {
+        emit({ type: 'games', games: ids.map((id) => ({ id, name: apps[id]?.appinfo?.common?.name ?? null })) });
+      } else for (const id of ids) {
         const name = apps[id]?.appinfo?.common?.name;
         log(`  - ${id}${name ? `: ${name}` : ''}`);
       }
       if (unknownApps?.length) warn(`Unknown app IDs (no hours will be added): ${unknownApps.join(', ')}`);
     } catch {
-      log(`  Games: ${games.join(', ')}`);
+      ids.forEach((id) => named.delete(id));
+      if (!IPC) log(`  Games: ${ids.join(', ')}`);
     }
   }
+
+  // Live changes from the desktop app.
+  onCommand = (cmd) => {
+    if (cmd.type === 'boost') return setBoost(Boolean(cmd.on));
+    if (cmd.type !== 'config') return;
+    try {
+      const fail = (msg) => { throw new Error(msg); };
+      const newGames = parseGames(Array.isArray(cmd.games) ? cmd.games : [], fail);
+      const newTitle = String(cmd.customTitle ?? '').trim();
+      const err = limitError(newGames, newTitle);
+      if (err) fail(err);
+      games = newGames;
+      title = newTitle;
+      force = Boolean(cmd.force);
+      if (Boolean(cmd.invisible) !== invisible) {
+        invisible = Boolean(cmd.invisible);
+        if (loggedIn) client.setPersona(invisible ? EPersonaState.Invisible : EPersonaState.Online);
+      }
+      if (wantBoost && !playingList().length) setBoost(false); // the last game was removed
+      else if (wantBoost && loggedIn) client.gamesPlayed(playingList(), force);
+      showGameNames();
+    } catch (e) {
+      emit({ type: 'configError', msg: e.message });
+    }
+  };
 
   client.on('steamGuard', async (domain, callback, lastCodeWrong) => {
     if (lastCodeWrong) warn('That code was wrong, try again.');
@@ -399,10 +464,17 @@ async function main() {
 
   client.on('loggedOn', () => {
     cancelPrompt(); // e.g. login approved in the mobile app while the code prompt was open
-    log(`Logged in (SteamID ${client.steamID.getSteamID64()})`);
+    loggedIn = true;
+    const steamId = client.steamID.getSteamID64();
+    log(`Logged in (SteamID ${steamId})`);
+    if (IPC) emit({ type: 'loggedOn', steamId });
     client.setPersona(invisible ? EPersonaState.Invisible : EPersonaState.Online);
-    startBoost();
-    log(`Boosting ${games.length} game(s)${title ? ` with custom title "${title}"` : ''}${IPC ? '' : ':'}`); // the CLI lists the games next
+    if (wantBoost) {
+      startBoost();
+      log(`Boosting ${games.length} game(s)${title ? ` with custom title "${title}"` : ''}${IPC ? '' : ':'}`); // the CLI lists the games next
+    } else {
+      log('Ready. Press Start to boost.');
+    }
     showGameNames();
   });
 
@@ -410,6 +482,7 @@ async function main() {
     if (isBlocked === blocked) return; // nothing changed
 
     blocked = isBlocked;
+    if (!wantBoost) return; // not playing anything, so another device playing doesn't matter
     if (isBlocked) {
       stopClock();
       if (force) { // once per episode, so a failed kick can't loop
@@ -428,12 +501,14 @@ async function main() {
 
   client.on('disconnected', (eresult, msg) => {
     stopClock();
+    loggedIn = false;
     blocked = false; // Steam re-sends the playing state after reconnecting
     if (!shuttingDown) warn(`Disconnected from Steam (${msg || eresult}). Reconnecting...`);
   });
 
   client.on('error', (err) => {
     stopClock();
+    loggedIn = false;
     blocked = false;
 
     switch (err.eresult) {

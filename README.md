@@ -56,9 +56,10 @@ Stop with Ctrl+C.
 
 `desktop/` holds a small Tauri app with a window and a tray icon. It runs `booster.js` in the background, so it needs Node.js installed, plus `npm install` in the project root.
 
-- Enter your account name, add games by app ID or store link, set an optional title, and press **Start boosting**.
-- The password and Steam Guard code are asked for in a dialog on the first start. The app keeps its own saved login, separate from the CLI's `.session` folder.
-- **Minimizing hides the window to the tray.** Click the tray icon to bring it back; right-click it for Start/Stop and Quit. Closing the window quits the app and logs the booster off.
+- **Sign in** on the login page with your account name, password and Steam Guard code (or approve it in the Steam mobile app). After that the app signs in by itself on every start. It keeps its own saved login, separate from the CLI's `.session` folder.
+- On the main page, add games by app ID or store link, set an optional title, and press **Start boosting**. Changes apply right away, even while boosting. **Pause** keeps you signed in.
+- The hourglass streams while boosting and turns over once per boosted hour. If boosting was on when you quit, it resumes on the next start.
+- **Minimizing hides the window to the tray.** Click the tray icon to bring it back; right-click it to start or pause boosting, or quit. Closing the window quits the app and logs the booster off. **Sign out** forgets the saved login.
 
 Build it (needs Rust and the Visual Studio C++ Build Tools):
 
