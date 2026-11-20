@@ -37,6 +37,9 @@ let lastError = '';
 let leaving = false;     // the user asked to stop (sign out / different account), so no error on exit
 let signingOut = false;
 let turnsShown = 0;
+let splashCancelled = false;
+let forgetAccount = null; // deleted after the booster has exited, so it can't re-save a token
+let currentRun = null;    // identifies the booster process, so a stale exit can't reset a newer run
 
 let gameNames = {};
 try { gameNames = JSON.parse(localStorage.getItem('gameNames') || '{}'); } catch { /* storage unavailable */ }
@@ -114,9 +117,12 @@ async function playSplash() {
     ui.splashLine.classList.add('in');
     return sleep(400);
   }
+  if (splashCancelled) return;
   glass.setProgress(1, true);            // starts with all the sand at the bottom...
   await glass.animateReveal(750);
+  if (splashCancelled) { glass.setFlowing(false); return; }
   await glass.flip(ui.glassHost, 950);   // ...and is turned over, which starts the clock
+  if (splashCancelled) { glass.setFlowing(false); return; }
   glass.setFlowing(true);
   chars.forEach((c, i) => setTimeout(() => c.classList.add('in'), i * 55));
   setTimeout(() => ui.splashLine.classList.add('in'), chars.length * 55 + 150);
@@ -267,7 +273,7 @@ const maxGames = () => MAX_ENTRIES - (ui.title.value.trim() ? 1 : 0);
 function gameArt(id) {
   const art = document.createElement('span');
   art.className = 'art';
-  art.textContent = (gameNames[id] ?? '#')[0].toUpperCase();
+  art.textContent = ((gameNames[id] ?? '#') || '#')[0].toUpperCase();
   const urls = [
     `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${id}/capsule_184x69.jpg`,
     `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/capsule_184x69.jpg`,
@@ -344,6 +350,7 @@ function removeGame(id) {
 async function connect(boost) {
   readForm();
   lastError = '';
+  lastWarn = '';
   try {
     await invoke('connect', { settings, boost });
   } catch (e) {
@@ -359,6 +366,11 @@ ui.loginCard.querySelector('.step[data-step="account"]').addEventListener('submi
   settings.accountName = account;
   ui.accountName.textContent = account;
   document.querySelectorAll('.acct-echo').forEach((el) => { el.textContent = account; });
+  if (promptId !== null) { // the booster asked for a username before it could start
+    save();
+    answer(account, 'Connecting to Steam');
+    return;
+  }
   setStep('wait', 'Connecting to Steam');
   connect(false);
 });
@@ -425,7 +437,10 @@ ui.loginCard.querySelectorAll('.back').forEach((btn) => btn.addEventListener('cl
 function onPrompt(ev) {
   promptId = ev.id;
   if (view !== 'login') setView('login');
-  if (ev.kind === 'password') {
+  if (ev.kind === 'username') {
+    ui.loginAccount.value = settings.accountName || '';
+    setStep('account');
+  } else if (ev.kind === 'password') {
     setStep('password');
   } else if (ev.kind === 'guard') {
     ui.guardBoxes.forEach((b) => { b.value = ''; b.classList.remove('filled'); });
@@ -502,22 +517,27 @@ listen('booster', ({ payload: ev }) => {
   }
 });
 
-listen('booster-started', () => {
+listen('booster-started', ({ payload }) => {
+  currentRun = payload?.run ?? null;
   connected = true;
-  boosting = false;
+  boosting = Boolean(payload?.boost);
   status = 'connecting';
   turnsShown = 0;
   lastError = '';
+  lastWarn = '';
   glass.setProgress(0, true);
   setTimer(0);
   renderState();
 });
 
-listen('booster-exit', () => {
+listen('booster-exit', ({ payload }) => {
+  if (currentRun !== null && payload?.run !== currentRun) return; // an older process exited
+  currentRun = null;
   connected = false;
   boosting = false;
   status = 'offline';
   promptId = null;
+  lastWarn = '';
   glass.setFlowing(false);
   const wasLeaving = leaving;
   leaving = false;
@@ -525,6 +545,13 @@ listen('booster-exit', () => {
     signingOut = false;
     setView('login');
     setStep('account');
+    // Delete the token only after the booster is gone; otherwise it could save
+    // a renewed token again during its shutdown.
+    if (forgetAccount) {
+      const account = forgetAccount;
+      forgetAccount = null;
+      invoke('forget_login', { account }).catch((e) => toast(String(e)));
+    }
   } else if (view === 'login') {
     setStep('account');
     if (!wasLeaving && lastError) loginError(lastError);
@@ -561,7 +588,16 @@ ui.boost.addEventListener('click', async () => {
 });
 
 ui.addForm.addEventListener('submit', addGame);
-ui.title.addEventListener('input', () => { renderTitlePreview(); renderGames(); save(); });
+ui.title.addEventListener('input', () => {
+  // The title takes one of Steam's 32 slots; with a full list, saving would fail.
+  if (ui.title.value.trim() && settings.games.length >= MAX_ENTRIES) {
+    ui.title.value = '';
+    toast(`Remove a game first: Steam allows ${MAX_ENTRIES} entries, and the title uses one.`);
+  }
+  renderTitlePreview();
+  renderGames();
+  save();
+});
 for (const box of [ui.invisible, ui.force]) box.addEventListener('change', save);
 
 ui.signout.addEventListener('click', async () => {
@@ -571,11 +607,12 @@ ui.signout.addEventListener('click', async () => {
   if (connected) {
     signingOut = true;
     leaving = true;
+    forgetAccount = account || null;
     invoke('disconnect');
-  } else {
-    setView('login');
-    setStep('account');
+    return; // the token is deleted in booster-exit, once the booster can no longer renew it
   }
+  setView('login');
+  setStep('account');
   try { if (account) await invoke('forget_login', { account }); } catch (e) { toast(String(e)); }
 });
 
@@ -587,8 +624,9 @@ $('win-close').addEventListener('click', () => appWindow.close());
 (async () => {
   let skip;
   const skipped = new Promise((resolve) => { skip = resolve; });
-  $('view-splash').addEventListener('click', () => skip());
-  addEventListener('keydown', () => skip(), { once: true });
+  const skipSplash = () => { splashCancelled = true; skip(); };
+  $('view-splash').addEventListener('click', skipSplash);
+  addEventListener('keydown', skipSplash, { once: true });
 
   const ready = (async () => {
     const [saved, state] = await Promise.all([invoke('get_settings'), invoke('connection_state')]);

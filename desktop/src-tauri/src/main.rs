@@ -48,6 +48,9 @@ struct AppState {
     boosting: AtomicBool,
     toggle_item: Mutex<Option<MenuItem<Wry>>>,
     next_run: AtomicU64,
+    /// Serializes read-modify-write cycles on settings.json. The form and the
+    /// booster's status reader both update the file.
+    settings_lock: Mutex<()>,
 }
 
 // ---------- settings ----------
@@ -89,7 +92,14 @@ fn token_file(app: &AppHandle, account: &str) -> Result<PathBuf, String> {
     if !valid_account(account) {
         return Err("Enter a valid account name first.".into());
     }
-    Ok(session_dir(app)?.join(format!("{}.token", account.to_lowercase())))
+    let name = account.to_lowercase();
+    // Must match WINDOWS_RESERVED in booster.js: device names need a prefix.
+    let reserved = matches!(name.as_str(), "con" | "prn" | "aux" | "nul")
+        || (name.len() == 4
+            && (name.starts_with("com") || name.starts_with("lpt"))
+            && matches!(name.as_bytes()[3], b'1'..=b'9'));
+    let file = if reserved { format!("_{name}.token") } else { format!("{name}.token") };
+    Ok(session_dir(app)?.join(file))
 }
 
 fn load_settings(app: &AppHandle) -> Settings {
@@ -103,7 +113,16 @@ fn load_settings(app: &AppHandle) -> Settings {
 fn store_settings(app: &AppHandle, s: &Settings) -> Result<(), String> {
     validate(s)?;
     let text = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    fs::write(config_dir(app)?.join("settings.json"), text).map_err(|e| format!("Could not save settings: {e}"))
+    let dir = config_dir(app)?;
+    let path = dir.join("settings.json");
+    let tmp = dir.join("settings.json.tmp");
+    // Write-then-rename: readers never see a half-written settings file.
+    fs::write(&tmp, text).map_err(|e| format!("Could not save settings: {e}"))?;
+    if let Err(e) = fs::rename(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("Could not save settings: {e}"));
+    }
+    Ok(())
 }
 
 fn booster_config(s: &Settings) -> Value {
@@ -222,10 +241,11 @@ fn connect_booster(app: &AppHandle, s: &Settings, boost: bool) -> Result<(), Str
     let run = state.next_run.fetch_add(1, Ordering::SeqCst) + 1;
     *running = Some(Running { run, child, stdin });
     drop(running);
-    state.boosting.store(false, Ordering::SeqCst);
+    // A queued boost is about to be processed; reflect it in the tray right away.
+    state.boosting.store(boost, Ordering::SeqCst);
 
     refresh_tray(app, "connecting");
-    let _ = app.emit("booster-started", ());
+    let _ = app.emit("booster-started", json!({ "boost": boost, "run": run }));
 
     let handle = app.clone();
     thread::spawn(move || {
@@ -254,8 +274,10 @@ fn connect_booster(app: &AppHandle, s: &Settings, boost: bool) -> Result<(), Str
                 }
                 Some("boosting") => {
                     let on = event["on"].as_bool().unwrap_or(false);
-                    handle.state::<AppState>().boosting.store(on, Ordering::SeqCst);
+                    let state = handle.state::<AppState>();
+                    state.boosting.store(on, Ordering::SeqCst);
                     refresh_tray(&handle, &last_status);
+                    let _guard = state.settings_lock.lock().unwrap();
                     let mut s = load_settings(&handle);
                     if s.resume_boost != on {
                         s.resume_boost = on;
@@ -278,10 +300,25 @@ fn on_booster_exit(app: &AppHandle, run: u64) {
         let mut running = state.running.lock().unwrap();
         if running.as_ref().map(|r| r.run) == Some(run) { running.take() } else { None }
     };
-    let code = finished.and_then(|mut r| r.child.wait().ok()).and_then(|status| status.code());
+    // A newer run (or the app's shutdown path) already owns this process. Emitting
+    // an exit event here would clobber the live run's UI state.
+    let Some(mut running) = finished else { return; };
+    // stdout closing normally means the booster has exited. If the process lingers anyway,
+    // don't block forever: request_stop's kill timer can no longer see this run.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let code = loop {
+        match running.child.try_wait() {
+            Ok(Some(status)) => break status.code(),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = running.child.kill();
+                break running.child.wait().ok().and_then(|status| status.code());
+            }
+        }
+    };
     state.boosting.store(false, Ordering::SeqCst);
     refresh_tray(app, "offline");
-    let _ = app.emit("booster-exit", json!({ "code": code }));
+    let _ = app.emit("booster-exit", json!({ "code": code, "run": run }));
 }
 
 fn send_to_booster(app: &AppHandle, message: &Value) -> Result<u64, String> {
@@ -354,9 +391,14 @@ fn get_settings(app: AppHandle) -> Settings {
 /// Saves the settings and, while logged in, applies them right away.
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
-    let mut s = settings;
-    s.resume_boost = load_settings(&app).resume_boost; // owned by the booster's state, not the form
-    store_settings(&app, &s)?;
+    let s = {
+        let state = app.state::<AppState>();
+        let _guard = state.settings_lock.lock().unwrap();
+        let mut s = settings;
+        s.resume_boost = load_settings(&app).resume_boost; // owned by the booster's state, not the form
+        store_settings(&app, &s)?;
+        s
+    };
     if app.state::<AppState>().running.lock().unwrap().is_some() {
         let mut message = booster_config(&s);
         message["type"] = json!("config");
@@ -367,9 +409,14 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
 
 #[tauri::command]
 fn connect(app: AppHandle, settings: Settings, boost: bool) -> Result<(), String> {
-    let mut s = settings;
-    s.resume_boost = load_settings(&app).resume_boost;
-    store_settings(&app, &s)?;
+    let s = {
+        let state = app.state::<AppState>();
+        let _guard = state.settings_lock.lock().unwrap();
+        let mut s = settings;
+        s.resume_boost = load_settings(&app).resume_boost;
+        store_settings(&app, &s)?;
+        s
+    };
     connect_booster(&app, &s, boost)
 }
 

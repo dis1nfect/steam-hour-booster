@@ -43,7 +43,8 @@ CLI options override the config file. The password is prompted for
 // ---------- output ----------
 
 const isTTY = !IPC && process.stdout.isTTY;
-const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
+// JSON lines are an IPC-only protocol; never pollute normal CLI stdout with them.
+const emit = (event) => { if (IPC) process.stdout.write(`${JSON.stringify(event)}\n`); };
 const clearLine = () => { if (isTTY) process.stdout.write('\r\x1b[K'); };
 const stamp = () => new Date().toLocaleTimeString();
 const log = (msg) => {
@@ -55,8 +56,11 @@ const warn = (msg) => {
   clearLine(); console.warn(`[${stamp()}] ! ${msg}`);
 };
 function die(msg) {
-  if (IPC) emit({ type: 'error', msg });
-  else { clearLine(); console.error(`Error: ${msg}`); }
+  if (IPC) {
+    // fs.writeSync, unlike process.stdout.write, cannot be dropped by the
+    // process.exit below, so the desktop app always receives the final error.
+    try { fs.writeSync(1, `${JSON.stringify({ type: 'error', msg })}\n`); } catch { /* ignore */ }
+  } else { clearLine(); console.error(`Error: ${msg}`); }
   process.exit(1);
 }
 
@@ -76,8 +80,10 @@ const pendingAnswers = new Map();
 function ask(question, hidden = false, kind = 'text') {
   if (IPC) {
     return new Promise((resolve) => {
+      if (activePrompt) cancelPrompt(); // a newer question supersedes the old one
       const id = ++promptSeq;
-      pendingAnswers.set(id, resolve);
+      // Passwords may legitimately contain leading/trailing spaces; other answers are trimmed.
+      pendingAnswers.set(id, (value) => resolve(kind === 'password' ? value : value.trim()));
       activePrompt = { id };
       emit({ type: 'prompt', id, kind, hidden, message: question.replace(/:\s*$/, '') });
     });
@@ -100,7 +106,7 @@ function ask(question, hidden = false, kind = 'text') {
       if (activePrompt === rl) activePrompt = null;
       rl.close();
       if (hidden) process.stdout.write('\n');
-      resolve(answer.trim());
+      resolve(kind === 'password' ? answer : answer.trim());
     };
 
     rl._writeToOutput = (s) => { if (!muted) rl.output.write(s); };
@@ -186,6 +192,18 @@ function configString(cfgValue, name) {
   return cfgValue;
 }
 
+// IPC commands come from the desktop app. Bad values must reject the command,
+// not terminate the booster, so these throw instead of calling die().
+function commandBool(value, name) {
+  if (typeof value !== 'boolean') throw new Error(`"${name}" must be true or false.`);
+  return value;
+}
+
+function commandString(value, name) {
+  if (typeof value !== 'string') throw new Error(`"${name}" must be a string.`);
+  return value;
+}
+
 function parseGames(input, fail = die) {
   const raw = Array.isArray(input) ? input : String(input ?? '').split(',');
   const ids = [];
@@ -202,7 +220,13 @@ function parseGames(input, fail = die) {
 
 // ---------- saved session (refresh token) ----------
 
-const tokenPath = (account) => path.join(SESSION_DIR, `${account.toLowerCase()}.token`);
+// Windows treats these as device names even with an extension (e.g. "con.token"),
+// which would make reading/writing the token hit the console instead of a file.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+const tokenPath = (account) => {
+  const name = account.toLowerCase();
+  return path.join(SESSION_DIR, `${WINDOWS_RESERVED.test(name) ? `_${name}` : name}.token`);
+};
 
 // steam-user validates the token asynchronously and crashes the process on a bad one,
 // so check it here and fall back to a password login instead.
@@ -211,7 +235,7 @@ function isUsableToken(token) {
     const parts = token.split('.');
     if (parts.length !== 3) return false;
     const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
-    const aud = Array.isArray(payload.aud) ? payload.aud : [];
+    const aud = Array.isArray(payload.aud) ? payload.aud : typeof payload.aud === 'string' ? [payload.aud] : [];
     if (payload.iss !== 'steam' || !aud.includes('client')) return false;
     return typeof payload.exp !== 'number' || payload.exp * 1000 > Date.now();
   } catch {
@@ -270,7 +294,7 @@ function listenForCommands() {
       const resolve = pendingAnswers.get(cmd.id);
       pendingAnswers.delete(cmd.id);
       if (activePrompt?.id === cmd.id) activePrompt = null;
-      return resolve(String(cmd.value ?? '').trim());
+      return resolve(String(cmd.value ?? ''));
     }
     onCommand(cmd ?? {});
   });
@@ -304,6 +328,7 @@ async function main() {
   }
 
   // --idle (desktop app only): log in, but wait for a 'boost' command before playing.
+  if (args.idle && !IPC) die('--idle is only valid together with --ipc.');
   const idle = IPC && Boolean(args.idle);
   let games = parseGames(args.games ?? cfg.games);
   let title = String(args.title ?? configString(cfg.customTitle, 'customTitle')).trim();
@@ -311,7 +336,8 @@ async function main() {
   let force = configBool(args.force, cfg.force, 'force');
 
   if (!idle && !games.length && !title) die('No games to boost. Use --games 730,440 or set "games" in config.json.');
-  if (limitError(games, title)) die(limitError(games, title));
+  const tooMany = limitError(games, title);
+  if (tooMany) die(tooMany);
 
   // A string entry shows as a non-Steam game, i.e. the custom title. It goes first so it is what friends see.
   const playingList = () => (title ? [title, ...games] : games);
@@ -425,23 +451,25 @@ async function main() {
 
   // Live changes from the desktop app.
   onCommand = (cmd) => {
-    if (cmd.type === 'boost') return setBoost(Boolean(cmd.on));
-    if (cmd.type !== 'config') return;
     try {
+      if (cmd.type === 'boost') return setBoost(cmd.on === undefined ? true : commandBool(cmd.on, 'on'));
+      if (cmd.type !== 'config') return;
       const fail = (msg) => { throw new Error(msg); };
-      const newGames = parseGames(Array.isArray(cmd.games) ? cmd.games : [], fail);
-      const newTitle = String(cmd.customTitle ?? '').trim();
+      const newGames = cmd.games === undefined ? games : parseGames(cmd.games, fail);
+      const newTitle = cmd.customTitle === undefined ? title : commandString(cmd.customTitle, 'customTitle').trim();
+      const newForce = cmd.force === undefined ? force : commandBool(cmd.force, 'force');
+      const newInvisible = cmd.invisible === undefined ? invisible : commandBool(cmd.invisible, 'invisible');
       const err = limitError(newGames, newTitle);
       if (err) fail(err);
       games = newGames;
       title = newTitle;
-      force = Boolean(cmd.force);
-      if (Boolean(cmd.invisible) !== invisible) {
-        invisible = Boolean(cmd.invisible);
+      force = newForce;
+      if (newInvisible !== invisible) {
+        invisible = newInvisible;
         if (loggedIn) client.setPersona(invisible ? EPersonaState.Invisible : EPersonaState.Online);
       }
       if (wantBoost && !playingList().length) setBoost(false); // the last game was removed
-      else if (wantBoost && loggedIn) client.gamesPlayed(playingList(), force);
+      else if (wantBoost) startBoost(); // picks up the new list and restarts the clock if needed
       showGameNames();
     } catch (e) {
       emit({ type: 'configError', msg: e.message });
