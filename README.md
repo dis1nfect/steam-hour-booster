@@ -51,3 +51,21 @@ Up to 32 entries can be played at once (31 games if a custom title is set).
 - If you start a game on another device, the booster pauses and resumes once you stop (unless `--force` is set, which takes the session back).
 
 Stop with Ctrl+C.
+
+## Desktop app
+
+`desktop/` holds a small Tauri app with a window and a tray icon. It runs `booster.js` in the background, so it needs Node.js installed, plus `npm install` in the project root.
+
+- Enter your account name, add games by app ID or store link, set an optional title, and press **Start boosting**.
+- The password and Steam Guard code are asked for in a dialog on the first start. The app keeps its own saved login, separate from the CLI's `.session` folder.
+- **Minimizing hides the window to the tray.** Click the tray icon to bring it back; right-click it for Start/Stop and Quit. Closing the window quits the app and logs the booster off.
+
+Build it (needs Rust and the Visual Studio C++ Build Tools):
+
+```powershell
+cd desktop
+npm install
+npx tauri dev
+```
+
+`npx tauri build` makes an installer in `desktop/src-tauri/target/release/bundle/nsis/`.

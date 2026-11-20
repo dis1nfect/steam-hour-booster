@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steam Hour Booster</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="status-row">
+      <span id="status" class="pill" data-state="stopped">Stopped</span>
+      <span id="persona" class="persona" hidden></span>
+    </div>
+    <div class="timer-block">
+      <div id="timer" class="timer">00:00:00</div>
+      <div class="timer-label">boosted this session</div>
+    </div>
+    <button id="toggle" class="primary" type="button">Start boosting</button>
+    <p id="banner" class="banner" role="alert" hidden></p>
+  </header>
+
+  <main>
+    <fieldset id="settings">
+      <section class="group">
+        <label class="field-label" for="account">Steam account name</label>
+        <input id="account" type="text" autocomplete="username" spellcheck="false" placeholder="the name you log in with">
+        <p class="hint">Your password and Steam Guard code are asked for on the first start only. <button id="forget" class="link" type="button">Forget saved login</button></p>
+      </section>
+
+      <section class="group">
+        <div class="field-head">
+          <label class="field-label" for="add-game">Games</label>
+          <span id="game-count" class="count">0 / 32</span>
+        </div>
+        <div class="add-row">
+          <input id="add-game" type="text" inputmode="numeric" spellcheck="false" placeholder="App ID or store link, e.g. 730">
+          <button id="add-btn" class="secondary" type="button">Add</button>
+        </div>
+        <ul id="games" class="games"></ul>
+        <p id="games-empty" class="hint">No games yet. The app ID is the number in the store link: store.steampowered.com/app/<b>730</b>/</p>
+      </section>
+
+      <section class="group">
+        <label class="field-label" for="title">Custom title <span class="optional">optional</span></label>
+        <input id="title" type="text" maxlength="64" placeholder="Shown as &quot;In non-Steam game&quot;">
+      </section>
+
+      <section class="group toggles">
+        <label class="switch"><input id="invisible" type="checkbox"><span>Appear invisible to friends</span></label>
+        <label class="switch"><input id="force" type="checkbox"><span>Take over if I'm playing on another PC</span></label>
+      </section>
+    </fieldset>
+    <p class="hint locked-hint" id="locked-hint" hidden>Stop boosting to change settings.</p>
+
+    <details class="log-box" open>
+      <summary>Activity</summary>
+      <ol id="log" class="log"></ol>
+    </details>
+  </main>
+
+  <dialog id="prompt">
+    <form id="prompt-form" method="dialog">
+      <h2 id="prompt-title">Steam login</h2>
+      <p id="prompt-message" class="hint"></p>
+      <input id="prompt-input" type="password" autocomplete="off" spellcheck="false">
+      <div class="dialog-actions">
+        <button id="prompt-cancel" class="secondary" type="button">Cancel</button>
+        <button class="primary" type="submit">Continue</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

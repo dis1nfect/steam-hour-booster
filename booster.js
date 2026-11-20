@@ -10,7 +10,12 @@ const SteamUser = require('steam-user');
 const { EResult, EPersonaState } = SteamUser;
 const MAX_ENTRIES = 32; // Steam's limit on simultaneously "played" entries
 const MAX_APP_ID = 0xFFFFFFFF; // Steam app IDs are unsigned 32-bit integers
-const SESSION_DIR = path.join(__dirname, '.session');
+// --ipc: driven by the desktop app. Output becomes JSON lines on stdout, prompts and
+// commands arrive as JSON lines on stdin.
+const IPC = process.argv.includes('--ipc');
+const SESSION_DIR = process.env.BOOSTER_DATA_DIR
+  ? path.resolve(process.env.BOOSTER_DATA_DIR)
+  : path.join(__dirname, '.session');
 const RETRY_ELSEWHERE_MS = 5 * 60 * 1000;
 const RETRY_NETWORK_MS = 30 * 1000;
 
@@ -27,6 +32,7 @@ Options:
       --invisible        Appear invisible to friends while boosting
   -f, --force            Take over if the account is playing elsewhere
       --logout           Delete the saved login session and exit
+      --ipc              JSON mode used by the desktop app
   -h, --help             Show this help
 
 CLI options override the config file. The password is prompted for
@@ -35,12 +41,23 @@ CLI options override the config file. The password is prompted for
 
 // ---------- output ----------
 
-const isTTY = process.stdout.isTTY;
+const isTTY = !IPC && process.stdout.isTTY;
+const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 const clearLine = () => { if (isTTY) process.stdout.write('\r\x1b[K'); };
 const stamp = () => new Date().toLocaleTimeString();
-const log = (msg) => { clearLine(); console.log(`[${stamp()}] ${msg}`); };
-const warn = (msg) => { clearLine(); console.warn(`[${stamp()}] ! ${msg}`); };
-function die(msg) { clearLine(); console.error(`Error: ${msg}`); process.exit(1); }
+const log = (msg) => {
+  if (IPC) return emit({ type: 'log', level: 'info', msg });
+  clearLine(); console.log(`[${stamp()}] ${msg}`);
+};
+const warn = (msg) => {
+  if (IPC) return emit({ type: 'log', level: 'warn', msg });
+  clearLine(); console.warn(`[${stamp()}] ! ${msg}`);
+};
+function die(msg) {
+  if (IPC) emit({ type: 'error', msg });
+  else { clearLine(); console.error(`Error: ${msg}`); }
+  process.exit(1);
+}
 
 function fmtDuration(ms) {
   const s = Math.floor(ms / 1000);
@@ -51,8 +68,19 @@ function fmtDuration(ms) {
 // ---------- prompts ----------
 
 let activePrompt = null;
+let promptSeq = 0;
+const pendingAnswers = new Map();
 
-function ask(question, hidden = false) {
+// kind tells the desktop app which dialog to show: 'username', 'password' or 'guard'.
+function ask(question, hidden = false, kind = 'text') {
+  if (IPC) {
+    return new Promise((resolve) => {
+      const id = ++promptSeq;
+      pendingAnswers.set(id, resolve);
+      activePrompt = { id };
+      emit({ type: 'prompt', id, kind, hidden, message: question.replace(/:\s*$/, '') });
+    });
+  }
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -92,6 +120,12 @@ function ask(question, hidden = false) {
 
 function cancelPrompt() {
   if (!activePrompt) return;
+  if (IPC) {
+    pendingAnswers.delete(activePrompt.id);
+    emit({ type: 'promptCancelled', id: activePrompt.id });
+    activePrompt = null;
+    return;
+  }
   activePrompt.cancelled = true;
   activePrompt.close();
   activePrompt = null;
@@ -112,6 +146,7 @@ function parseCli() {
         force: { type: 'boolean', short: 'f' },
         logout: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
+        ipc: { type: 'boolean' },
       },
     }).values;
   } catch (e) {
@@ -220,6 +255,24 @@ function deleteToken(account) {
   }
 }
 
+// ---------- desktop app commands (--ipc) ----------
+
+function listenForCommands() {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false });
+  rl.on('line', (line) => {
+    let cmd;
+    try { cmd = JSON.parse(line); } catch { return; }
+    if (cmd?.type === 'stop') return shutdown();
+    if (cmd?.type === 'answer' && pendingAnswers.has(cmd.id)) {
+      const resolve = pendingAnswers.get(cmd.id);
+      pendingAnswers.delete(cmd.id);
+      if (activePrompt?.id === cmd.id) activePrompt = null;
+      resolve(String(cmd.value ?? '').trim());
+    }
+  });
+  rl.on('close', () => shutdown()); // the desktop app went away
+}
+
 // ---------- main ----------
 
 let shutdown = () => process.exit(0);
@@ -227,9 +280,10 @@ let shutdown = () => process.exit(0);
 async function main() {
   const args = parseCli();
   if (args.help) return console.log(HELP);
+  if (IPC) listenForCommands();
 
   const cfg = loadConfig(args.config ?? path.join(__dirname, 'config.json'), args.config !== undefined);
-  const account = String(args.user ?? configString(cfg.accountName, 'accountName')).trim() || (await ask('Steam username: '));
+  const account = String(args.user ?? configString(cfg.accountName, 'accountName')).trim() || (await ask('Steam username: ', false, 'username'));
   if (!/^\w+$/.test(account)) die('Account name may only contain letters, numbers and underscores.');
 
   if (args.logout) {
@@ -268,7 +322,10 @@ async function main() {
   };
   const totalBoosted = () => boostedMs + (activeSince !== null ? Date.now() - activeSince : 0);
 
-  if (isTTY) {
+  if (IPC) {
+    const state = () => (activeSince !== null ? 'boosting' : blocked ? 'paused' : 'connecting');
+    statusTimer = setInterval(() => emit({ type: 'status', state: state(), boostedMs: totalBoosted() }), 1000);
+  } else if (isTTY) {
     statusTimer = setInterval(() => {
       if (activeSince === null) return;
       process.stdout.write(`\r\x1b[KBoosting ${games.length} game(s)${title ? ` as "${title}"` : ''} | ${fmtDuration(totalBoosted())}  (Ctrl+C to stop)`);
@@ -288,7 +345,7 @@ async function main() {
         log(`Logging in as ${account} using saved session...`);
         client.logOn({ refreshToken: token });
       } else {
-        const password = process.env.STEAM_PASSWORD || (await ask(`Password for ${account}: `, true));
+        const password = process.env.STEAM_PASSWORD || (await ask(`Password for ${account}: `, true, 'password'));
         if (!password) die('Password is required.');
         log(`Logging in as ${account}...`);
         client.logOn({ accountName: account, password });
@@ -314,7 +371,9 @@ async function main() {
     namesShown = true;
     try {
       const { apps, unknownApps } = await client.getProductInfo(games, [], true);
-      for (const id of games) {
+      if (IPC) {
+        emit({ type: 'games', games: games.map((id) => ({ id, name: apps[id]?.appinfo?.common?.name ?? null })) });
+      } else for (const id of games) {
         const name = apps[id]?.appinfo?.common?.name;
         log(`  - ${id}${name ? `: ${name}` : ''}`);
       }
@@ -330,18 +389,20 @@ async function main() {
       ? `Steam Guard code sent to your email (${domain}): `
       : 'Steam Guard code from your mobile app (or approve the login in the app): ';
     let code = '';
-    while (!code) code = await ask(prompt);
+    while (!code) code = await ask(prompt, false, 'guard');
     callback(code);
   });
 
   client.on('refreshToken', (token) => saveToken(account, token));
+
+  if (IPC) client.on('accountInfo', (name) => emit({ type: 'persona', name }));
 
   client.on('loggedOn', () => {
     cancelPrompt(); // e.g. login approved in the mobile app while the code prompt was open
     log(`Logged in (SteamID ${client.steamID.getSteamID64()})`);
     client.setPersona(invisible ? EPersonaState.Invisible : EPersonaState.Online);
     startBoost();
-    log(`Boosting ${games.length} game(s)${title ? ` with custom title "${title}"` : ''}:`);
+    log(`Boosting ${games.length} game(s)${title ? ` with custom title "${title}"` : ''}${IPC ? '' : ':'}`); // the CLI lists the games next
     showGameNames();
   });
 
@@ -448,6 +509,7 @@ async function main() {
       client.gamesPlayed([]);
       client.logOff();
     } catch { /* not connected */ }
+    if (IPC) emit({ type: 'stopped', boostedMs });
     setTimeout(() => process.exit(0), 1000);
   };
 
