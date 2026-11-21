@@ -176,6 +176,48 @@ test('a boost sent before login starts boosting once logged in', { timeout: 2000
   assert.equal(await b.stop(), 0);
 });
 
+test('config commands sent before login are applied after loggedOn', { timeout: 20000 }, async (t) => {
+  const b = start(t, { scenario: 'slow-login', config: config(), tokenText: token() });
+  b.send({ type: 'boost', on: true });
+  b.send({ type: 'config', games: [570], customTitle: 'New' });
+
+  // Both commands are processed while login is still pending; nothing may be played yet.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(b.games().length, 0, 'no gamesPlayed while logged out');
+
+  await b.waitFor((e) => e.type === 'loggedOn');
+  await b.waitForCondition(() => b.games().some((g) => sameApps(g.apps, ['New', 570])));
+  assert.equal(b.games().some((g) => sameApps(g.apps, [730])), false, 'the old list must not be played');
+
+  assert.equal(await b.stop(), 0);
+});
+
+test('config commands sent after a disconnect are applied on the next login', { timeout: 25000 }, async (t) => {
+  const b = start(t, { scenario: 'reconnect', config: config(), tokenText: token() });
+  await b.waitFor((e) => e.type === 'loggedOn');
+
+  b.send({ type: 'boost', on: true });
+  await b.waitFor((e) => e.type === 'boosting' && e.on === true);
+  await b.waitForCondition(() => b.games().some((g) => sameApps(g.apps, [730])));
+
+  await b.waitFor((e) => e.type === 'log' && /Disconnected from Steam/.test(e.msg));
+  b.send({ type: 'config', games: [570], customTitle: 'New' });
+
+  // The reconnect is still 700+ ms away; the edit must only be stored.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(b.games().length, 1, 'no gamesPlayed while disconnected');
+
+  await b.waitForCondition(() => b.events.filter((e) => e.type === 'loggedOn').length >= 2);
+  await b.waitForCondition(() => b.games().some((g) => sameApps(g.apps, ['New', 570])));
+
+  const calls = b.games();
+  assert.equal(calls.length, 2);
+  assert.equal(sameApps(calls[0].apps, [730]), true);
+  assert.equal(sameApps(calls.at(-1).apps, ['New', 570]), true);
+
+  assert.equal(await b.stop(), 0);
+});
+
 test('a custom title counts against Steam\'s 32-entry limit', { timeout: 20000 }, async (t) => {
   const games = Array.from({ length: 32 }, (_, index) => 730 + index);
   const b = start(t, { config: config({ games }), tokenText: token() });

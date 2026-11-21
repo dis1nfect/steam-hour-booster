@@ -32,6 +32,7 @@ class FakeSteamUser extends EventEmitter {
     this.steamID = { getSteamID64: () => '76561198000000000' };
     this.persona = null;
     this.blockedScheduled = false;
+    this.reconnectScheduled = false;
   }
 
   logOn(details = {}) {
@@ -60,12 +61,22 @@ class FakeSteamUser extends EventEmitter {
       });
       return;
     }
+    if (scenario === 'slow-login') {
+      setTimeout(() => this.finishLogOn(), 600);
+      return;
+    }
     setImmediate(() => this.finishLogOn());
   }
 
   finishLogOn() {
     this.emit('loggedOn');
     if (process.env.FAKE_REFRESH_TOKEN) this.emit('refreshToken', process.env.FAKE_REFRESH_TOKEN);
+    if (scenario === 'reconnect' && !this.reconnectScheduled) {
+      this.reconnectScheduled = true;
+      // Simulate steam-user's automatic relogin after a dropped connection.
+      setTimeout(() => this.emit('disconnected', EResult.NoConnection, 'NoConnection'), 300);
+      setTimeout(() => this.emit('loggedOn'), 1200);
+    }
   }
 
   setPersona(state) {
