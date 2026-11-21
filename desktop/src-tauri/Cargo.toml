@@ -1,6 +1,6 @@
 [package]
 name = "steam-hour-booster"
-version = "1.0.0"
+version = "1.0.1"
 description = "Desktop app for the Steam hour booster"
 edition = "2021"
 
