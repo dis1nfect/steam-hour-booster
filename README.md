@@ -39,7 +39,9 @@ node booster.js -u your_steam_username -g 730,440,570 -t "Boosting hours"
 | `-t, --title` | Custom title shown as your current game |
 | `-c, --config` | Use a different config file |
 | `--invisible` | Appear invisible to friends |
+| `--no-invisible` | Override config `"invisible": true` and appear online |
 | `-f, --force` | Kick another session that is playing on this account (otherwise it waits) |
+| `--no-force` | Override config `"force": true` and don't take over other sessions |
 | `--logout` | Delete the saved session for the account |
 
 Up to 32 entries can be played at once (31 games if a custom title is set).

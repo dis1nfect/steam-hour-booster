@@ -49,3 +49,38 @@ test('CLI passwords keep leading/trailing spaces', { timeout: 20000 }, async (t)
 
   await b.terminate();
 });
+
+test('--no-force and --no-invisible override config.json', { timeout: 20000 }, async (t) => {
+  const b = start(t, {
+    cli: true,
+    config: { accountName: 'testuser', games: [730], invisible: true, force: true },
+    args: ['--no-force', '--no-invisible'],
+    account: 'testuser',
+    tokenText: token(),
+  });
+
+  const persona = await b.waitForCondition(() => b.fakeEvents().find((e) => e.kind === 'persona'));
+  assert.equal(persona.state, 1, 'the persona should be Online, not Invisible');
+  const games = await b.waitForCondition(() => b.games().find((g) => g.apps.length));
+  assert.equal(games.force, false, 'force should be off');
+
+  await b.terminate();
+});
+
+test('positive and negative overrides are mutually exclusive', { timeout: 20000 }, async (t) => {
+  const force = start(t, {
+    cli: true,
+    config: {},
+    args: ['-u', 'testuser', '-g', '730', '--force', '--no-force'],
+  });
+  assert.equal(await force.waitForExit(), 1);
+  assert.match(force.stderr.join(''), /--force and --no-force/);
+
+  const invisible = start(t, {
+    cli: true,
+    config: {},
+    args: ['-u', 'testuser', '-g', '730', '--invisible', '--no-invisible'],
+  });
+  assert.equal(await invisible.waitForExit(), 1);
+  assert.match(invisible.stderr.join(''), /--invisible and --no-invisible/);
+});

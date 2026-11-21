@@ -30,7 +30,9 @@ Options:
   -t, --title <text>     Custom "in game" title shown on your profile
   -c, --config <file>    Config file (default: ./config.json)
       --invisible        Appear invisible to friends while boosting
+      --no-invisible     Override config "invisible": appear online
   -f, --force            Take over if the account is playing elsewhere
+      --no-force         Override config "force": do not take over
       --logout           Delete the saved login session and exit
       --ipc              JSON mode used by the desktop app
       --idle             With --ipc: log in, but wait for a "boost" command
@@ -150,7 +152,9 @@ function parseCli() {
         title: { type: 'string', short: 't' },
         config: { type: 'string', short: 'c' },
         invisible: { type: 'boolean' },
+        'no-invisible': { type: 'boolean' },
         force: { type: 'boolean', short: 'f' },
+        'no-force': { type: 'boolean' },
         logout: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
         ipc: { type: 'boolean' },
@@ -336,6 +340,16 @@ async function main() {
   let title = String(args.title ?? configString(cfg.customTitle, 'customTitle')).trim();
   let invisible = configBool(args.invisible, cfg.invisible, 'invisible');
   let force = configBool(args.force, cfg.force, 'force');
+  // util.parseArgs has no allowNegative (especially on Node 18), so the
+  // negatives are explicit options and override the config value.
+  if (args['no-invisible']) {
+    if (args.invisible) die('Cannot use --invisible and --no-invisible together.');
+    invisible = false;
+  }
+  if (args['no-force']) {
+    if (args.force) die('Cannot use --force and --no-force together.');
+    force = false;
+  }
 
   if (!idle && !games.length && !title) die('No games to boost. Use --games 730,440 or set "games" in config.json.');
   const tooMany = limitError(games, title);
