@@ -186,6 +186,30 @@ fn booster_script(app: &AppHandle) -> Result<PathBuf, String> {
     Err("Could not find booster.js next to the app.".into())
 }
 
+/// Where to look for Node: `node` on PATH first (respects the user's choice of version),
+/// then the standard Windows install locations. The app can start without Node on its
+/// PATH, e.g. with nvm-windows or when Node was installed after Explorer started.
+fn node_candidates() -> Vec<PathBuf> {
+    let mut candidates = vec![PathBuf::from("node")];
+    #[cfg(windows)]
+    {
+        let under = |var: &str, rest: &[&str]| {
+            std::env::var_os(var).map(|base| rest.iter().fold(PathBuf::from(base), |p, part| p.join(part)))
+        };
+        candidates.extend(
+            [
+                under("ProgramFiles", &["nodejs", "node.exe"]),
+                under("LOCALAPPDATA", &["Programs", "nodejs", "node.exe"]),
+                under("NVM_SYMLINK", &["node.exe"]),
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|path| path.is_file()),
+        );
+    }
+    candidates
+}
+
 /// Log in. With `boost`, boosting starts as soon as the login succeeds.
 fn connect_booster(app: &AppHandle, s: &Settings, boost: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -204,31 +228,37 @@ fn connect_booster(app: &AppHandle, s: &Settings, boost: bool) -> Result<(), Str
     fs::write(&cfg_path, booster_config(s).to_string())
         .map_err(|e| format!("Could not write the booster config: {e}"))?;
 
-    let mut cmd = Command::new("node");
-    cmd.arg(&script)
-        .args(["--ipc", "--idle", "-c"])
-        .arg(&cfg_path)
-        .env("BOOSTER_DATA_DIR", session_dir(app)?)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(dir) = script.parent() {
-        cmd.current_dir(dir);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            "Node.js was not found. Install it from nodejs.org, then restart the app.".to_string()
-        } else {
-            format!("Could not start the booster: {e}")
+    let session = session_dir(app)?;
+    let mut spawned = None;
+    for node in node_candidates() {
+        let mut cmd = Command::new(&node);
+        cmd.arg(&script)
+            .args(["--ipc", "--idle", "-c"])
+            .arg(&cfg_path)
+            .env("BOOSTER_DATA_DIR", &session)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(dir) = script.parent() {
+            cmd.current_dir(dir);
         }
-    })?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        match cmd.spawn() {
+            Ok(child) => {
+                spawned = Some(child);
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue, // try the next location
+            Err(e) => return Err(format!("Could not start the booster: {e}")),
+        }
+    }
+    let mut child = spawned
+        .ok_or_else(|| "Node.js was not found. Install it from nodejs.org, then restart the app.".to_string())?;
     let (Some(mut stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
         let _ = child.kill();
         return Err("Could not connect to the booster process.".into());

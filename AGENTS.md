@@ -4,7 +4,7 @@ Steam hour booster: a Node CLI (`booster.js`, single dependency `steam-user`) pl
 
 ## Layout and wiring
 - `booster.js` (root) is the only Steam logic. The desktop app never talks to Steam itself.
-- `desktop/src-tauri/src/main.rs` spawns `node booster.js --ipc --idle -c <appConfigDir>/booster-config.json` with `BOOSTER_DATA_DIR=<appDataDir>/session`. It requires `node` on PATH at runtime, including in the installed app.
+- `desktop/src-tauri/src/main.rs` spawns `node booster.js --ipc --idle -c <appConfigDir>/booster-config.json` with `BOOSTER_DATA_DIR=<appDataDir>/session`. It needs Node at runtime, including in the installed app: `node_candidates()` tries `node` on PATH first, then `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%NVM_SYMLINK%`.
 - `desktop/src/` is a plain static frontend (no bundler/npm deps): `index.html` loads `hourglass.js`, `fx.js`, `main.js` as classic scripts and uses `window.__TAURI__` (`withGlobalTauri: true`). There is no frontend build step or dev server.
 - Release bundle copies the root `booster.js` and the **root** `node_modules/` as resources (`tauri.conf.json` -> `bundle.resources`), so run `npm install` in the repo root before `npx tauri build`. In dev, `main.rs` falls back to `CARGO_MANIFEST_DIR/../../booster.js`.
 
