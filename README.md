@@ -6,7 +6,7 @@ It comes in two versions that share the same Steam logic (`booster.js`, one depe
 
 | | Desktop app | Command line |
 | --- | --- | --- |
-| For | Everyday use on Windows | Servers, a Raspberry Pi, scripts |
+| For | Everyday use on Windows (Linux builds too) | Servers, a Raspberry Pi, scripts |
 | Install | Installer from [Releases](../../releases) | `npm install` |
 | Runs | In the tray, with a window | In a terminal |
 | Needs | Node.js 18.3+ | Node.js 18.3+ |
@@ -22,6 +22,15 @@ Both can boost up to 32 games at once (31 with a custom title). Both pause while
 3. Windows SmartScreen may warn about an unknown publisher, because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 
 It installs for your user only (no admin rights needed). Uninstall it from Windows Settings → Apps.
+
+#### Linux
+
+Releases also include an `.AppImage` and a `.deb` (x64), built automatically on Ubuntu 22.04. They're less tested than the Windows version.
+
+- Install Node.js 18.3+ so that `node` is on your PATH.
+- **AppImage**: `chmod +x Steam.Hour.Booster_*.AppImage`, then run it.
+- **.deb** (Debian, Ubuntu): `sudo apt install ./Steam.Hour.Booster_*_amd64.deb`
+- The tray icon needs a desktop with tray support (on GNOME, the AppIndicator extension). Clicking the icon may do nothing on Linux; use right-click → **Show window** instead.
 
 ### Use
 
@@ -108,6 +117,8 @@ npx tauri dev
 ```
 
 `npx tauri build` makes the installer in `desktop/src-tauri/target/release/bundle/nsis/`.
+
+The Linux AppImage and `.deb` are built by [`.github/workflows/linux.yml`](.github/workflows/linux.yml) whenever a release is published, and attached to it. To build them yourself on Linux, install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#linux) and run `npx tauri build --bundles deb,appimage` in `desktop/`.
 
 `desktop/src/` is the window (plain HTML, CSS and JavaScript, no build step). `desktop/src-tauri/` is the Rust shell that runs `node booster.js --ipc --idle` in the background and talks to it in JSON lines.
 

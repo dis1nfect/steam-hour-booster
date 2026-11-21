@@ -1,0 +1,84 @@
+# Builds the desktop app for Linux (AppImage + .deb) and attaches it to the release.
+# The Windows installer is still built locally with `npx tauri build`.
+name: Linux build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v1.0.2
+        required: true
+      upload:
+        description: Attach the files to that release (otherwise only keep them as a workflow artifact)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # needed to upload release assets
+
+concurrency:
+  group: linux-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential file patchelf
+
+      # The bundle copies the root node_modules, so install it before building.
+      - name: Install npm dependencies
+        run: |
+          npm ci
+          npm ci --prefix desktop
+
+      - name: Run the booster tests
+        run: npm test
+
+      - name: Build AppImage and .deb
+        working-directory: desktop
+        run: npx tauri build --ci --bundles deb,appimage -- --locked
+
+      - name: Keep the files as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ env.TAG }}
+          path: |
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name == 'release' || inputs.upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" --clobber \
+            desktop/src-tauri/target/release/bundle/deb/*.deb \
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
