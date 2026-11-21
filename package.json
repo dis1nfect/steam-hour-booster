@@ -1,6 +1,6 @@
 {
   "name": "steam-hour-booster",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lightweight CLI Steam hour booster with multi-game and custom title support",
   "main": "booster.js",
   "bin": {
