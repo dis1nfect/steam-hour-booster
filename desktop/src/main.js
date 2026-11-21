@@ -291,7 +291,7 @@ const rows = new Map(); // app ID -> <li>
 
 function renderGames() {
   for (const [id, li] of rows) if (!settings.games.includes(id)) { li.remove(); rows.delete(id); }
-  settings.games.forEach((id) => {
+  settings.games.forEach((id, index) => {
     let li = rows.get(id);
     if (!li) {
       li = document.createElement('li');
@@ -317,7 +317,10 @@ function renderGames() {
     const label = `Remove ${gameNames[id] ?? id}`;
     li.querySelector('.remove').title = label;
     li.querySelector('.remove').setAttribute('aria-label', label);
-    ui.games.append(li); // keeps list order
+    // Keep list order, but only move rows that are out of place: moving a row in the
+    // DOM restarts its slide-in animation, and this runs on every title keystroke.
+    const here = ui.games.children[index];
+    if (here !== li) ui.games.insertBefore(li, here ?? null);
   });
   ui.gameCount.textContent = `${settings.games.length} / ${maxGames()}`;
   ui.gamesEmpty.hidden = settings.games.length > 0;
