@@ -122,3 +122,7 @@ The suite drives the CLI and the `--ipc` protocol against a fake `steam-user` in
 ## Note
 
 Idling games may go against Steam's Subscriber Agreement, and some games ignore or reset idled hours. Use at your own risk.
+
+## License
+
+[MIT](LICENSE)

@@ -2,6 +2,7 @@
 name = "steam-hour-booster"
 version = "1.0.1"
 description = "Desktop app for the Steam hour booster"
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]
