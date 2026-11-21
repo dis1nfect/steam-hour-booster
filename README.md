@@ -28,16 +28,18 @@ It installs for your user only (no admin rights needed). Uninstall it from Windo
 - **Sign in** with your account name, password and Steam Guard code, or approve the sign-in in the Steam mobile app. After that the app signs in by itself on every start. Your password is only sent to Steam and never stored.
 - **Add games** by app ID or by pasting a store link. The app ID is the number in the link: `store.steampowered.com/app/730/`. Each game shows its Steam artwork, and its name once you're signed in.
 - **Custom title** (optional): what friends see as "In non-Steam game". It takes one of the 32 slots.
+- **Accounts**, next to the profile row, remembers every account with a saved login. Switch between them, add another account, or forget one. Each account keeps its own games and title; only one account boosts at a time, and switching never starts boosting by itself.
 - Press **Start boosting**. Changes to games, title and options apply right away, even while boosting. **Pause boosting** keeps you signed in.
 - **Appear invisible to friends** hides you while boosting. **Take over if I start a game on another PC** makes the booster take the account back instead of waiting.
 - The hourglass streams sand while boosting and turns over once per boosted hour. If boosting was on when you quit, it resumes on the next start.
+- If something goes wrong, open **Activity → Open logs folder** for `crash.log` (rotated to `crash.old.log` at about 1 MB). The log never contains passwords, Guard codes, tokens or settings.
 
 ### Tray
 
 - **Minimize** hides the window to the tray. Click the tray icon to bring it back.
 - **Right-click** the tray icon to start or pause boosting, or to quit.
 - **Close** quits the app and signs the booster out of Steam.
-- **Sign out** (bottom of the window) forgets the saved login.
+- **Sign out** (bottom of the window) forgets the current account. Use **Accounts** to switch to another saved account, add one, or forget a different account.
 
 Only one copy runs at a time; opening it again brings the existing window to the front.
 

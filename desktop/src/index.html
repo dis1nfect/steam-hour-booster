@@ -124,11 +124,25 @@
     <details class="panel activity">
       <summary>Activity</summary>
       <ol id="log" class="log"></ol>
+      <button id="open-logs" class="btn-link" type="button">Open logs folder</button>
     </details>
+
+    <div id="accounts-panel" class="panel accounts-panel" hidden>
+      <div class="panel-head">
+        <h3>Accounts</h3>
+        <span class="account-actions">
+          <button id="add-account" class="btn-link" type="button">Add account</button>
+          <button id="close-accounts" class="btn-link" type="button">Close</button>
+        </span>
+      </div>
+      <ul id="accounts-list" class="accounts"></ul>
+      <p id="accounts-empty" class="empty">No saved accounts yet.</p>
+    </div>
 
     <footer class="account">
       <span id="avatar" class="avatar" aria-hidden="true">?</span>
       <span class="who"><b id="persona">Not signed in</b><span id="account-name" class="muted"></span></span>
+      <button id="accounts-toggle" class="btn-link" type="button" aria-expanded="false">Accounts</button>
       <button id="signout" class="btn-link" type="button">Sign out</button>
     </footer>
     </div>
